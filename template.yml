@@ -2,6 +2,17 @@ AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: DynamoDB only - Virtual Assistant (SAM)
 
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 20
+    MemorySize: 512
+    Tracing: Active
+    Environment:
+      Variables:
+        STAGE: !Ref Stage
+        TABLE_NAME: !Ref VirtualAssistantTable
+
 Parameters:
   Stage:
     Type: String
@@ -29,6 +40,20 @@ Resources:
         SSEEnabled: true
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
+  
+    # -----------------------
+  # Lambda Function (python 12)
+  # -----------------------
+  VirtualAssistantFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "fn-virtual-assistant-${Stage}"
+      CodeUri: .
+      Handler: app.lambda_handler
+      Description: Virtual Assistant API handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref VirtualAssistantTable
 
 Outputs:
   TableName:
@@ -37,3 +62,6 @@ Outputs:
   TableArn:
     Description: DynamoDB table ARN
     Value: !GetAtt VirtualAssistantTable.Arn
+  FunctionName:
+    Description: Lambda function name
+    Value: !Ref VirtualAssistantFunction
