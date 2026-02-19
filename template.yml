@@ -5,7 +5,7 @@ Description: DynamoDB only - Virtual Assistant (SAM)
 Globals:
   Function:
     Runtime: python3.12
-    Timeout: 20
+    Timeout: 600
     MemorySize: 512
     Tracing: Active
     Environment:
@@ -49,11 +49,26 @@ Resources:
     Properties:
       FunctionName: !Sub "fn-virtual-assistant-${Stage}"
       CodeUri: .
-      Handler: app.lambda_handler
+      Handler: lambda_function.lambda_handler
       Description: Virtual Assistant API handler
+      Layers:
+        - arn:aws:lambda:us-east-1:336392948345:layer:AWSSDKPandas-Python312:15
+      Environment:
+        Variables:
+          KB_S3_ECOMM_PATH: datasets/output/v1
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref VirtualAssistantTable
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:ListBucket
+              Resource:
+                - "arn:aws:s3:::genai-bedrock-udemy-virginia-01"
+                - "arn:aws:s3:::genai-bedrock-udemy-virginia-01/*"
 
 Outputs:
   TableName:
