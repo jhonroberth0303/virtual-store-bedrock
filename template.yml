@@ -49,7 +49,7 @@ Resources:
     Properties:
       FunctionName: !Sub "fn-virtual-assistant-${Stage}"
       CodeUri: .
-      Handler: lambda_function.lambda_handler
+      Handler: stack_backend_lambda_light_etl/lambda_function.py.lambda_handler
       Description: Virtual Assistant API handler
       Layers:
         - arn:aws:lambda:us-east-1:336392948345:layer:AWSSDKPandas-Python312:15
@@ -57,8 +57,6 @@ Resources:
         Variables:
           KB_S3_ECOMM_PATH: datasets/output/v1
       Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref VirtualAssistantTable
         - AWSLambdaBasicExecutionRole
         - Statement:
             - Effect: Allow
@@ -70,6 +68,37 @@ Resources:
                 - "arn:aws:s3:::genai-bedrock-udemy-virginia-01"
                 - "arn:aws:s3:::genai-bedrock-udemy-virginia-01/*"
 
+ #-----------------------
+ # Lambda para registro de ventas
+ #------------------------
+  AwsSalesStoreOrdersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Timeout: 30
+      FunctionName: !Sub "fn-sales-store-orders-${Stage}"
+      CodeUri: .
+      Handler: stack_frontend_ddb_lambda/lambda_function.py:lambda_handler
+      Description: Lambda function to register sales orders
+      Layers:
+        - arn:aws:lambda:us-east-1:017000801446:layer:AWSLambdaPowertoolsPythonV3-python312-x86_64:2
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref VirtualAssistantTable
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - DynamoDBCrudPolicy:
+            TableName: !Ref VirtualAssistantTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:BatchWriteItem
+                - dynamodb:DescribeTable
+              Resource: !GetAtt VirtualAssistantTable.Arn
+            
 Outputs:
   TableName:
     Description: DynamoDB table name
