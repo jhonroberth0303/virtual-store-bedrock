@@ -194,14 +194,23 @@ Resources:
               S3BucketName: !Ref ArtifactsBucket
               S3ObjectKey: !Ref OpenApiSchemaObjectKey
 
-  # Permiso para que Bedrock pueda invocar tu Lambda
-  AllowBedrockInvokeOrdersLambda:
+  # Permiso a nivel servicio para que Bedrock pueda invocar la Lambda
+  AllowServiceBedrockInvokeOrdersLambda:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:fn-sales-store-orders-${Stage}"
       Principal: bedrock.amazonaws.com
       SourceArn: !GetAtt SalesEcommAgent.AgentArn
+  
+  # Permiso a nivel rol para que Bedrock pueda invocar la Lambda
+  AllowRoleBedrockInvokeOrdersLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:fn-sales-store-orders-${Stage}"
+      Principal: !Sub "${AWS::AccountId}"
+      SourceArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/role-bedrock-agent-asistente-virtual-ventas-${Stage}" 
 
   # (Recomendado) Alias para invocar el agente estable
   SalesEcommAgentAlias:
