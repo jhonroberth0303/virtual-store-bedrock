@@ -5,9 +5,9 @@ stack_name = "bedrock-virtual-store-dev"
 resolve_s3 = true
 s3_prefix = "bedrock-virtual-store-dev"
 confirm_changeset = true
-capabilities = "CAPABILITY_IAM"
+capabilities = "CAPABILITY_NAMED_IAM"
 disable_rollback = true
-parameter_overrides = "Stage=\"dev\""
+parameter_overrides = "Stage=\"dev\" ArtifactsBucket=\"genai-bedrock-udemy-virginia-01\""
 image_repositories = []
 
 [default.global.parameters]

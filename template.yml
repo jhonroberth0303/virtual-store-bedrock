@@ -20,6 +20,27 @@ Parameters:
     AllowedValues: [dev, qa, prod]
     Description: Deployment stage name
 
+  FoundationModelId:
+    Type: String
+    Default: "anthropic.claude-3-haiku-20240307-v1:0"
+    Description: "Bedrock Foundation Model ID"
+
+  # Bucket donde subes:
+  # - prompts/prompt-ecomm.txt
+  # - openapi/schema.json
+  ArtifactsBucket:
+    Default: genai-bedrock-udemy-virginia-01
+    Type: String
+    Description: "S3 bucket con prompt y schema del agente"
+
+  PromptObjectKey:
+    Type: String
+    Default: "prompts/prompt-ecomm.txt"
+
+  OpenApiSchemaObjectKey:
+    Type: String
+    Default: "openapi/schema.json"
+
 Resources:
   VirtualAssistantTable:
     Type: AWS::DynamoDB::Table
@@ -41,7 +62,7 @@ Resources:
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
   
-    # -----------------------
+  # -----------------------
   # Lambda Function (python 12)
   # -----------------------
   VirtualAssistantFunction:
@@ -98,7 +119,97 @@ Resources:
                 - dynamodb:BatchWriteItem
                 - dynamodb:DescribeTable
               Resource: !GetAtt VirtualAssistantTable.Arn
-            
+
+  # Rol de ejecucion del agente (Bedrock asume este rol)
+  BedrockAgentExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "role-bedrock-agent-asistente-virtual-ventas-${Stage}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub "bedrock-agent-policy-${Stage}"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Permiso para invocar el modelo
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource:
+                  - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${FoundationModelId}"
+              # Permiso para invocar la lambda del action group
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:fn-sales-store-orders-${Stage}"
+              # (Opcional pero util) leer prompt/schema en S3
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub "arn:aws:s3:::${ArtifactsBucket}/${PromptObjectKey}"
+                  - !Sub "arn:aws:s3:::${ArtifactsBucket}/${OpenApiSchemaObjectKey}"
+  
+  SalesEcommAgent:
+    Type: AWS::Bedrock::Agent
+    Properties:
+      AgentName: "agent-asistente-virtual-ventas-ecomm-001"
+      AgentResourceRoleArn: !GetAtt BedrockAgentExecutionRole.Arn
+      FoundationModel: !Ref FoundationModelId
+      AutoPrepare: true
+      # IMPORTANTE: Instruction es texto, por eso aqui usualmente se pega inline.
+      # Como tu lo tienes en archivo, te recomiendo cargarlo a S3 y luego pegarlo aqui
+      # (o manejarlo con pipeline que renderice el template).
+      Instruction: |
+        You are a friendly virtual assistant for our department store. You can answer questions about the products we sell, in our department store, but you can also place orders.
+        For questions about products, query your knowledge base to find the answer.
+        
+        For orders, use the upsertOrder function to place an order, using the following information:
+        
+        1. Call the upsertOrder function by passing the following parameters, paying attention to the data type in parenthesis: "product_id" (string), "product_name" (string), "price" (float), "quantity (integer)" and "order_notes" (string).
+        2. For the parameter "order_notes", add in here all relevant information you consider to the order, like even if you had an issue when placing the order, or if the inventory needs re-stocking, or if the user was angry, or the color of the product, etc. 
+        3. If any of these parameters are not provided, look for the value in the knowledge base. For example, if the price is null, look for the price of the product in the knowledge base.
+        4. The upsertOrder function will return a confirmation message with the product ID (product_id) submitted.
+        
+        Try to be helpful, asking to the customers if they want more information about the products provided, or if they want to see the product reviews.
+        Whenever possible, do upselling by offering products related to the user query.
+        If the user query is not related to the products, you must answer that you don't have the information.
+        Do not use any XML tags in the response.
+      ActionGroups:
+        - ActionGroupName: "action_group_place_orders"
+          Description: "Place orders in the sales store"
+          ActionGroupState: ENABLED
+          ActionGroupExecutor:
+            Lambda: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:fn-sales-store-orders-${Stage}"
+          ApiSchema:
+            S3:
+              S3BucketName: !Ref ArtifactsBucket
+              S3ObjectKey: !Ref OpenApiSchemaObjectKey
+
+  # Permiso para que Bedrock pueda invocar tu Lambda
+  AllowBedrockInvokeOrdersLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:fn-sales-store-orders-${Stage}"
+      Principal: bedrock.amazonaws.com
+      SourceArn: !GetAtt SalesEcommAgent.AgentArn
+
+  # (Recomendado) Alias para invocar el agente estable
+  SalesEcommAgentAlias:
+    Type: AWS::Bedrock::AgentAlias
+    Properties:
+      AgentId: !GetAtt SalesEcommAgent.AgentId
+      AgentAliasName: !Sub "live-${Stage}"
+
 Outputs:
   TableName:
     Description: DynamoDB table name
@@ -109,3 +220,9 @@ Outputs:
   FunctionName:
     Description: Lambda function name
     Value: !Ref VirtualAssistantFunction
+  BedrockAgentId:
+    Value: !GetAtt SalesEcommAgent.AgentId
+  BedrockAgentArn:
+    Value: !GetAtt SalesEcommAgent.AgentArn
+  BedrockAgentAliasId:
+    Value: !GetAtt SalesEcommAgentAlias.AgentAliasId
