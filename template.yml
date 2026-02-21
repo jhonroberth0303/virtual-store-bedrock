@@ -41,6 +41,21 @@ Parameters:
     Type: String
     Default: "openapi/schema.json"
 
+  DocsBucketName:
+    Type: String
+    Default: genai-bedrock-udemy-virginia-01
+    Description: "Bucket S3 con los documentos ya chunkeados"
+
+  DocsPrefix:
+    Type: String
+    Default: datasets/output/v1/
+    Description: "Prefijo donde están los chunks"
+
+  EmbeddingModelArn:
+    Type: String
+    Default: "arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v2:0"
+    Description: "Titan Text Embeddings v2 (1024 dims)"
+
 Resources:
   VirtualAssistantTable:
     Type: AWS::DynamoDB::Table
@@ -193,6 +208,10 @@ Resources:
             S3:
               S3BucketName: !Ref ArtifactsBucket
               S3ObjectKey: !Ref OpenApiSchemaObjectKey
+      KnowledgeBases:
+        - KnowledgeBaseId: !Ref EcommKnowledgeBase
+          Description: "Ecomm KB (pre-chunked, no chunking)"
+          KnowledgeBaseState: ENABLED
 
   # Permiso a nivel servicio para que Bedrock pueda invocar la Lambda
   AllowServiceBedrockInvokeOrdersLambda:
@@ -202,15 +221,6 @@ Resources:
       FunctionName: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:fn-sales-store-orders-${Stage}"
       Principal: bedrock.amazonaws.com
       SourceArn: !GetAtt SalesEcommAgent.AgentArn
-  
-  # Permiso a nivel rol para que Bedrock pueda invocar la Lambda
-  AllowRoleBedrockInvokeOrdersLambda:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:fn-sales-store-orders-${Stage}"
-      Principal: !Sub "${AWS::AccountId}"
-      SourceArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/role-bedrock-agent-asistente-virtual-ventas-${Stage}" 
 
   # (Recomendado) Alias para invocar el agente estable
   SalesEcommAgentAlias:
@@ -218,6 +228,92 @@ Resources:
     Properties:
       AgentId: !GetAtt SalesEcommAgent.AgentId
       AgentAliasName: !Sub "live-${Stage}"
+      
+  EcommVectorBucket:
+    Type: AWS::S3Vectors::VectorBucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VectorBucketName: !Sub "vec-ecomm-${Stage}"
+
+  EcommVectorIndex:
+    Type: AWS::S3Vectors::Index
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VectorBucketArn: !Ref EcommVectorBucket
+      IndexName: !Sub "idx-ecomm-${Stage}"   # debe ser lowercase/nums/hyphen/dot
+      DataType: float32
+      Dimension: 1024
+      DistanceMetric: cosine
+  
+  BedrockKnowledgeBaseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "role-bedrock-kb-ecomm-${Stage}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub "bedrock-kb-policy-${Stage}"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Leer chunks en S3
+              - Effect: Allow
+                Action: [s3:ListBucket]
+                Resource: !Sub "arn:aws:s3:::${DocsBucketName}"
+                Condition:
+                  StringLike:
+                    s3:prefix: [!Sub "${DocsPrefix}*"]
+              - Effect: Allow
+                Action: [s3:GetObject]
+                Resource: !Sub "arn:aws:s3:::${DocsBucketName}/${DocsPrefix}*"
+
+              # Invocar embeddings
+              - Effect: Allow
+                Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
+                Resource: !Ref EmbeddingModelArn
+
+              # Acceso a S3 Vectors (puedes restringir después)
+              - Effect: Allow
+                Action: "s3vectors:*"
+                Resource: "*"
+    
+  EcommKnowledgeBase:
+    Type: AWS::Bedrock::KnowledgeBase
+    Properties:
+      Name: !Sub "kb-ecomm-no-chunking-${Stage}"
+      Description: "KB ecomm (datos ya chunkeados). Vector store: S3 Vectors."
+      RoleArn: !GetAtt BedrockKnowledgeBaseRole.Arn
+      KnowledgeBaseConfiguration:
+        Type: VECTOR
+        VectorKnowledgeBaseConfiguration:
+          EmbeddingModelArn: !Ref EmbeddingModelArn
+      StorageConfiguration:
+        Type: S3_VECTORS
+        S3VectorsConfiguration:
+          VectorBucketArn: !Ref EcommVectorBucket
+          IndexArn: !Ref EcommVectorIndex
+
+  DataSourceEcommNoChunking:
+    Type: AWS::Bedrock::DataSource
+    Properties:
+      Name: !Sub "data-source-ecomm-no-chunking-${Stage}"
+      KnowledgeBaseId: !Ref EcommKnowledgeBase   # Ref devuelve KnowledgeBaseId :contentReference[oaicite:5]{index=5}
+      DataSourceConfiguration:
+        Type: S3
+        S3Configuration:
+          BucketArn: !Sub "arn:aws:s3:::${DocsBucketName}"
+          InclusionPrefixes:
+            - !Ref DocsPrefix
+      VectorIngestionConfiguration:
+        ChunkingConfiguration:
+          ChunkingStrategy: NONE
 
 Outputs:
   TableName:
