@@ -102,7 +102,7 @@ def upsert_order(
     ) -> Annotated[bool, Body(description='Return True if order has been placed correctly')]:
     
     # Get DynamoDB table name
-    table_name = os.environ['DDB_TABLE_NAME']
+    table_name = os.environ['TABLE_NAME']
 
     # Logging and metrics
     logger.info(f"Storing product sale...")

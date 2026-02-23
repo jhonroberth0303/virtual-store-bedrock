@@ -85,7 +85,7 @@ Resources:
     Properties:
       FunctionName: !Sub "fn-virtual-assistant-${Stage}"
       CodeUri: .
-      Handler: stack_backend_lambda_light_etl/lambda_function.py.lambda_handler
+      Handler: stack_backend_lambda_light_etl/lambda_function.lambda_handler
       Description: Virtual Assistant API handler
       Layers:
         - arn:aws:lambda:us-east-1:336392948345:layer:AWSSDKPandas-Python312:15
@@ -97,6 +97,7 @@ Resources:
         - Statement:
             - Effect: Allow
               Action:
+                - s3.*
                 - s3:GetObject
                 - s3:PutObject
                 - s3:ListBucket
@@ -113,7 +114,7 @@ Resources:
       Timeout: 30
       FunctionName: !Sub "fn-sales-store-orders-${Stage}"
       CodeUri: .
-      Handler: stack_frontend_ddb_lambda/lambda_function.py:lambda_handler
+      Handler: stack_frontend_ddb_lambda/lambda_function.lambda_handler
       Description: Lambda function to register sales orders
       Layers:
         - arn:aws:lambda:us-east-1:017000801446:layer:AWSLambdaPowertoolsPythonV3-python312-x86_64:2
